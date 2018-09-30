@@ -1,240 +1,175 @@
-#include <Arduino.h>
+#include "Arduino.h"
+//generalized wave freq detection with 38.5kHz sampling rate and interrupts
+//by Amanda Ghassaei
+//https://www.instructables.com/id/Arduino-Frequency-Detection/
+//Sept 2012
 
-// #include <LiquidCrystal.h>
-
-// FHT, http://wiki.openmusiclabs.com/wiki/ArduinoFHT
-#define LOG_OUT 1 // use the log output function
-#define LIN_OUT8 1 // use the linear byte output function
-#define FHT_N 256 // set to 256 point fht
-#include <FHT.h> // include the library
-
-// pins
-#define MicPin A0 // used with analogRead mode only
-
-// consts
-#define AmpMax (1024 / 2)
-#define MicSamples (1024*2) // Three of these time-weightings have been internationally standardised, 'S' (1 s) originally called Slow, 'F' (125 ms) originally called Fast and 'I' (35 ms) originally called Impulse.
-
-// modes
-//#define Use3.3 // use 3.3 voltage. the 5v voltage from usb is not regulated. this is much more stable.
-#define ADCReClock // switch to higher clock, not needed if we are ok with freq between 0 and 4Khz.
-#define ADCFlow // read data from adc with free-run (not interupt). much better data, dc low. hardcoded for A0.
-
-#define FreqLog // use log scale for FHT frequencies
-#ifdef FreqLog
-#define FreqOutData fht_log_out
-#define FreqGainFactorBits 0
-#else
-#define FreqOutData fht_lin_out8
-#define FreqGainFactorBits 3
-#endif
-#define FreqSerialBinary
-
-#define VolumeGainFactorBits 0
-
-// macros
-// http://yaab-arduino.blogspot.co.il/2015/02/fast-sampling-from-analog-input.html
-#define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
-#define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
-
-// // LCD
-// LiquidCrystal lcd(9, 8, 7, 6, 5, 4);
-// char lcdLineBuf[16 + 1];
+/*
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+*/
 
 
-// measure basic properties of the input signal
-// determine if analog or digital, determine range and average.
-void MeasureAnalog()
-{
-	long signalAvg = 0, signalMax = 0, signalMin = 1024, t0 = millis();
-	//cli();  // UDRE interrupt slows this way down on arduino1.0
-	for (int i = 0; i < MicSamples; i++)
-	{
-#ifdef ADCFlow
-		while (!(ADCSRA & /*0x10*/_BV(ADIF))); // wait for adc to be ready (ADIF)
-		sbi(ADCSRA, ADIF); // restart adc
-		byte m = ADCL; // fetch adc data
-		byte j = ADCH;
-		int k = ((int)j << 8) | m; // form into an int
-#else
-		int k = analogRead(MicPin);
-#endif
-		signalMin = min(signalMin, k);
-		signalMax = max(signalMax, k);
-		signalAvg += k;
-	}
-	signalAvg /= MicSamples;
-	//sei();
+//clipping indicator variables
+boolean clipping = 0;
 
-	// print
-	Serial.print("Time: " + String(millis() - t0));
-	Serial.print(" Min: " + String(signalMin));
-	Serial.print(" Max: " + String(signalMax));
-	Serial.print(" Avg: " + String(signalAvg));
-	Serial.print(" Span: " + String(signalMax - signalMin));
-	Serial.print(", " + String(signalMax - signalAvg));
-	Serial.print(", " + String(signalAvg - signalMin));
-	Serial.println("");
+//data storage variables
+byte newData = 0;
+byte prevData = 0;
+unsigned int time = 0;//keeps time and sends vales to store in timer[] occasionally
+int timer[10];//sstorage for timing of events
+int slope[10];//storage for slope of events
+unsigned int totalTimer;//used to calculate period
+unsigned int period;//storage for period of wave
+byte index = 0;//current storage index
+float frequency;//storage for frequency calculations
+int maxSlope = 0;//used to calculate max slope as trigger point
+int newSlope;//storage for incoming slope data
 
-	//lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
-	//lcd.setCursor(6, 0);                    // set the cursor to column 0, line 0
-	//sprintf(lcdLineBuf, "%3d%% %3ddB", (int)soundVolRMS, (int)dB);
-	//lcd.print(lcdLineBuf);
-}
+//variables for decided whether you have a match
+byte noMatch = 0;//counts how many non-matches you've received to reset variables if it's been too long
+byte slopeTol = 3;//slope tolerance- adjust this if you need
+int timerTol = 10;//timer tolerance- adjust this if you need
 
-// calculate volume level of the signal and print to serial and LCD
-void MeasureVolume()
-{
-	long soundVolAvg = 0, soundVolMax = 0, soundVolRMS = 0, t0 = millis();
-	//cli();  // UDRE interrupt slows this way down on arduino1.0
-	for (int i = 0; i < MicSamples; i++)
-	{
-#ifdef ADCFlow
-		while (!(ADCSRA & /*0x10*/_BV(ADIF))); // wait for adc to be ready (ADIF)
-		sbi(ADCSRA, ADIF); // restart adc
-		byte m = ADCL; // fetch adc data
-		byte j = ADCH;
-		int k = ((int)j << 8) | m; // form into an int
-#else
-		int k = analogRead(MicPin);
-#endif
-		int amp = abs(k - AmpMax);
-		amp <<= VolumeGainFactorBits;
-		soundVolMax = max(soundVolMax, amp);
-		soundVolAvg += amp;
-		soundVolRMS += ((long)amp*amp);
-	}
-	soundVolAvg /= MicSamples;
-	soundVolRMS /= MicSamples;
-	float soundVolRMSflt = sqrt(soundVolRMS);
-	//sei();
+//variables for amp detection
+unsigned int ampTimer = 0;
+byte maxAmp = 0;
+byte checkMaxAmp;
+byte ampThreshold = 30;//raise if you have a very noisy signal
 
-	float dB = 20.0*log10(soundVolRMSflt/AmpMax);
-
-	// convert from 0 to 100
-	soundVolAvg = 100 * soundVolAvg / AmpMax; 
-	soundVolMax = 100 * soundVolMax / AmpMax; 
-	soundVolRMSflt = 100 * soundVolRMSflt / AmpMax;
-	soundVolRMS = 10 * soundVolRMSflt / 7; // RMS to estimate peak (RMS is 0.7 of the peak in sin)
-
-	// print
-	Serial.print("Time: " + String(millis() - t0));
-	Serial.print(" Amp: Max: " + String(soundVolMax));
-	Serial.print("% Avg: " + String(soundVolAvg));
-	Serial.print("% RMS: " + String(soundVolRMS));
-	Serial.println("% dB: " + String(dB,3));
-
-	//lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
-	// lcd.setCursor(6, 0);                    // set the cursor to column 6, line 0
-	// sprintf(lcdLineBuf, "%3d%% %3ddB", (int)soundVolRMS, (int)dB);
-	// lcd.print(lcdLineBuf);
-
-}
-
-// calculate frequencies in the signal and print to serial
-void MeasureFHT()
-{
-	long t0 = micros();
-#ifdef ADCFlow
-	//cli();  // UDRE interrupt slows this way down on arduino1.0
-#endif
-	for (int i = 0; i < FHT_N; i++) { // save 256 samples
-#ifdef ADCFlow
-		while (!(ADCSRA & /*0x10*/_BV(ADIF))); // wait for adc to be ready (ADIF)
-		sbi(ADCSRA, ADIF); // restart adc
-		byte m = ADCL; // fetch adc data
-		byte j = ADCH;
-		int k = ((int)j << 8) | m; // form into an int
-#else
-		int k = analogRead(MicPin);
-#endif
-		k -= 0x0200; // form into a signed int
-		k <<= 6; // form into a 16b signed int
-		k <<= FreqGainFactorBits;
-		fht_input[i] = k; // put real data into bins
-	}
-#ifdef ADCFlow
-	//sei();
-#endif
-	long dt = micros() - t0;
-	fht_window(); // window the data for better frequency response
-	fht_reorder(); // reorder the data before doing the fht
-	fht_run(); // process the data in the fht
-#ifdef FreqLog
-	fht_mag_log();
-#else
-	fht_mag_lin8(); // take the output of the fht
-#endif
-
-#ifdef FreqSerialBinary
-	// print as binary
-	Serial.write(255); // send a start byte
-	Serial.write(FreqOutData, FHT_N / 2); // send out the data
-#else
-	// print as text
-	for (int i = 0; i < FHT_N / 2; i++)
-	{
-		Serial.print(FreqOutData[i]);
-		Serial.print(',');
-	}
-	long sample_rate = FHT_N * 1000000l / dt;
-	Serial.print(dt);
-	Serial.print(',');
-	Serial.println(sample_rate);
-#endif
+void reset(){//clea out some variables
+  index = 0;//reset index
+  noMatch = 0;//reset match couner
+  maxSlope = 0;//reset slope
 }
 
 
-void setup()
-{
-	//pinMode(MicPin, INPUT); // relevant for digital pins. not relevant for analog. however, don't put into digital OUTPUT mode if going to read analog values.
-
-#ifdef ADCFlow
-	// set the adc to free running mode
-	// register explanation: http://maxembedded.com/2011/06/the-adc-of-the-avr/
-	// 5 => div 32. sample rate 38.4
-	// 7 => switch to divider=128, default 9.6khz sampling
-	ADCSRA = 0xe0+7; // "ADC Enable", "ADC Start Conversion", "ADC Auto Trigger Enable" and divider.
-	ADMUX = 0x0; // use adc0 (hardcoded, doesn't use MicPin). Use ARef pin for analog reference (same as analogReference(EXTERNAL)).
-#ifndef Use3.3
-	ADMUX |= 0x40; // Use Vcc for analog reference.
-#endif
-	DIDR0 = 0x01; // turn off the digital input for adc0
-#else
-#ifdef Use3.3
-	analogReference(EXTERNAL); // 3.3V to AREF
-#endif
-#endif
-
-#ifdef ADCReClock // change ADC freq divider. default is div 128 9.6khz (bits 111)
-	// http://yaab-arduino.blogspot.co.il/2015/02/fast-sampling-from-analog-input.html
-	// 1 0 0 = mode 4 = divider 16 = 76.8khz
-	//sbi(ADCSRA, ADPS2);
-	//cbi(ADCSRA, ADPS1);
-	//cbi(ADCSRA, ADPS0);
-	// 1 0 1 = mode 5 = divider 32 = 38.4Khz
-	sbi(ADCSRA, ADPS2);
-	cbi(ADCSRA, ADPS1);
-	sbi(ADCSRA, ADPS0);
-#endif
-
-	// serial
-	Serial.begin(9600);
-	while (!Serial); // Wait untilSerial is ready - Leonardo
-	Serial.println("Starting mic demo");
-
-	// // lcd
-	// lcd.begin(16, 2);  // set up the LCD's number of columns and rows: 
-	// lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
-	// lcd.setCursor(0, 0);                    // set the cursor to column 6, line 0
-	// lcd.print("Sound: ");
+void checkClipping(){//manage clipping indicator LED
+  if (clipping){//if currently clipping
+    PORTB &= B11011111;//turn off clipping indicator led
+    clipping = 0;
+  }
 }
 
-void loop()
-{
-	// what do we want to do?
-	//MeasureAnalog();
-	MeasureVolume();
-	//MeasureFHT();
+
+
+void setup(){
+  
+  Serial.begin(9600);
+  
+  pinMode(13,OUTPUT);//led indicator pin
+  pinMode(12,OUTPUT);//output pin
+  
+  cli();//diable interrupts
+  
+  //set up continuous sampling of analog pin 0 at 38.5kHz
+ 
+  //clear ADCSRA and ADCSRB registers
+  ADCSRA = 0;
+  ADCSRB = 0;
+  
+  ADMUX |= (1 << REFS0); //set reference voltage
+  ADMUX |= (1 << ADLAR); //left align the ADC value- so we can read highest 8 bits from ADCH register only
+  
+  ADCSRA |= (1 << ADPS2) | (1 << ADPS0); //set ADC clock with 32 prescaler- 16mHz/32=500kHz
+  ADCSRA |= (1 << ADATE); //enabble auto trigger
+  ADCSRA |= (1 << ADIE); //enable interrupts when measurement complete
+  ADCSRA |= (1 << ADEN); //enable ADC
+  ADCSRA |= (1 << ADSC); //start ADC measurements
+  
+  sei();//enable interrupts
 }
+
+ISR(ADC_vect) {//when new ADC value ready
+  
+  PORTB &= B11101111;//set pin 12 low
+  prevData = newData;//store previous value
+  newData = ADCH;//get value from A0
+  if (prevData < 127 && newData >=127){//if increasing and crossing midpoint
+    newSlope = newData - prevData;//calculate slope
+    if (abs(newSlope-maxSlope)<slopeTol){//if slopes are ==
+      //record new data and reset time
+      slope[index] = newSlope;
+      timer[index] = time;
+      time = 0;
+      if (index == 0){//new max slope just reset
+        PORTB |= B00010000;//set pin 12 high
+        noMatch = 0;
+        index++;//increment index
+      }
+      else if (abs(timer[0]-timer[index])<timerTol && abs(slope[0]-newSlope)<slopeTol){//if timer duration and slopes match
+        //sum timer values
+        totalTimer = 0;
+        for (byte i=0;i<index;i++){
+          totalTimer+=timer[i];
+        }
+        period = totalTimer;//set period
+        //reset new zero index values to compare with
+        timer[0] = timer[index];
+        slope[0] = slope[index];
+        index = 1;//set index to 1
+        PORTB |= B00010000;//set pin 12 high
+        noMatch = 0;
+      }
+      else{//crossing midpoint but not match
+        index++;//increment index
+        if (index > 9){
+          reset();
+        }
+      }
+    }
+    else if (newSlope>maxSlope){//if new slope is much larger than max slope
+      maxSlope = newSlope;
+      time = 0;//reset clock
+      noMatch = 0;
+      index = 0;//reset index
+    }
+    else{//slope not steep enough
+      noMatch++;//increment no match counter
+      if (noMatch>9){
+        reset();
+      }
+    }
+  }
+    
+  if (newData == 0 || newData == 1023){//if clipping
+    PORTB |= B00100000;//set pin 13 high- turn on clipping indicator led
+    clipping = 1;//currently clipping
+  }
+  
+  time++;//increment timer at rate of 38.5kHz
+  
+  ampTimer++;//increment amplitude timer
+  if (abs(127-ADCH)>maxAmp){
+    maxAmp = abs(127-ADCH);
+  }
+  if (ampTimer==1000){
+    ampTimer = 0;
+    checkMaxAmp = maxAmp;
+    maxAmp = 0;
+  }
+  
+}
+
+
+void loop(){
+  
+  checkClipping();
+  
+  //  if (checkMaxAmp>ampThreshold){
+    frequency = 38462/float(period);//calculate frequency timer rate/period
+  
+    //print results
+    Serial.print(frequency);
+    Serial.println(" hz");
+    //  }
+  
+  delay(100);//delete this if you want
+  
+  //do other stuff here
+}
+
 
