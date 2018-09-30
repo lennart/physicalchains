@@ -1,6 +1,6 @@
 #include <Arduino.h>
 
-#include <LiquidCrystal.h>
+// #include <LiquidCrystal.h>
 
 // FHT, http://wiki.openmusiclabs.com/wiki/ArduinoFHT
 #define LOG_OUT 1 // use the log output function
@@ -16,7 +16,7 @@
 #define MicSamples (1024*2) // Three of these time-weightings have been internationally standardised, 'S' (1 s) originally called Slow, 'F' (125 ms) originally called Fast and 'I' (35 ms) originally called Impulse.
 
 // modes
-#define Use3.3 // use 3.3 voltage. the 5v voltage from usb is not regulated. this is much more stable.
+//#define Use3.3 // use 3.3 voltage. the 5v voltage from usb is not regulated. this is much more stable.
 #define ADCReClock // switch to higher clock, not needed if we are ok with freq between 0 and 4Khz.
 #define ADCFlow // read data from adc with free-run (not interupt). much better data, dc low. hardcoded for A0.
 
@@ -37,9 +37,9 @@
 #define cbi(sfr, bit) (_SFR_BYTE(sfr) &= ~_BV(bit))
 #define sbi(sfr, bit) (_SFR_BYTE(sfr) |= _BV(bit))
 
-// LCD
-LiquidCrystal lcd(9, 8, 7, 6, 5, 4);
-char lcdLineBuf[16 + 1];
+// // LCD
+// LiquidCrystal lcd(9, 8, 7, 6, 5, 4);
+// char lcdLineBuf[16 + 1];
 
 
 // measure basic properties of the input signal
@@ -125,9 +125,9 @@ void MeasureVolume()
 	Serial.println("% dB: " + String(dB,3));
 
 	//lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
-	lcd.setCursor(6, 0);                    // set the cursor to column 6, line 0
-	sprintf(lcdLineBuf, "%3d%% %3ddB", (int)soundVolRMS, (int)dB);
-	lcd.print(lcdLineBuf);
+	// lcd.setCursor(6, 0);                    // set the cursor to column 6, line 0
+	// sprintf(lcdLineBuf, "%3d%% %3ddB", (int)soundVolRMS, (int)dB);
+	// lcd.print(lcdLineBuf);
 
 }
 
@@ -223,18 +223,18 @@ void setup()
 	while (!Serial); // Wait untilSerial is ready - Leonardo
 	Serial.println("Starting mic demo");
 
-	// lcd
-	lcd.begin(16, 2);  // set up the LCD's number of columns and rows: 
-	lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
-	lcd.setCursor(0, 0);                    // set the cursor to column 6, line 0
-	lcd.print("Sound: ");
+	// // lcd
+	// lcd.begin(16, 2);  // set up the LCD's number of columns and rows: 
+	// lcd.clear();  //Clears the LCD screen and positions the cursor in the upper-left corner.   
+	// lcd.setCursor(0, 0);                    // set the cursor to column 6, line 0
+	// lcd.print("Sound: ");
 }
 
 void loop()
 {
 	// what do we want to do?
-	MeasureAnalog();
-	//MeasureVolume();
+	//MeasureAnalog();
+	MeasureVolume();
 	//MeasureFHT();
 }
 
