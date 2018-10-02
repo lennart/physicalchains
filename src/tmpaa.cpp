@@ -1,36 +1,33 @@
-#include "Arduino.h"
-/*
-  Simple Frequency Meter for Arduino Zero
+#include <PJON.h>
 
-  Demonstrates how to sample an input signal and get back its frequency
+// <Strategy name> bus(selected device id)
+PJON<ThroughSerial> bus(44);
 
-  This example code is in the public domain
-
-  http://arduino.cc/en/Tutorial/SimpleAudioFrequencyMeter
-
-  created by Arturo Guadalupi <a.guadalupi@arduino.cc>
-  10 Nov 2015
-*/
-
-#include <AudioFrequencyMeter.h>
-
-AudioFrequencyMeter meter;
+void receiver_function(uint8_t *payload, uint16_t length, const PJON_Packet_Info &packet_info) {
+  /* Make use of the payload before sending something, the buffer where payload points to is
+     overwritten when a new message is dispatched */
+  if(payload[0] == 'B') {
+    digitalWrite(13, HIGH);
+    delay(30);
+    digitalWrite(13, LOW);
+    bus.reply("B", 1);
+  }
+};
 
 void setup() {
-  // put your setup code here, to run once:
-  Serial.begin(115200);
-  Serial.println("started");
+  pinMode(13, OUTPUT);
+  digitalWrite(13, LOW); // Initialize LED 13 to be off
 
-  meter.setBandwidth(70.00, 1500);    // Ignore frequency out of this range
-  meter.begin(A0, 45000);             // Intialize A0 at sample rate of 45kHz
-}
+  Serial.begin(9600);
+
+  bus.strategy.set_serial(&Serial);
+  bus.strategy.set_enable_RS485_pin(2);
+  bus.set_receiver(receiver_function);
+  bus.set_synchronous_acknowledge(false);
+  bus.begin();
+};
 
 void loop() {
-  // put your main code here, to run repeatedly:
-  float frequency = meter.getFrequency();
-  if (frequency > 0)
-  {
-    Serial.print(frequency);
-    Serial.println(" Hz");
-  }
-}
+  bus.update();
+  bus.receive(1000);
+};
