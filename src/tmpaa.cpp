@@ -1,37 +1,96 @@
-#include <PJON.h>
-#include <SoftwareSerial.h>
+#include <Arduino.h>
 
-// <Strategy name> bus(selected device id)
-PJON<ThroughSerial> bus(44);
-SoftwareSerial softSerial(10,11);
+// protocol handling
+String paramBuffer = "";
+String nodeName = "dcarm";
 
-void receiver_function(uint8_t *payload, uint16_t length, const PJON_Packet_Info &packet_info) {
-  /* Make use of the payload before sending something, the buffer where payload points to is
-     overwritten when a new message is dispatched */
-  if(payload[0] == 'B') {
-    digitalWrite(13, HIGH);
-    delay(30);
-    digitalWrite(13, LOW);
-    bus.reply("B", 1); 
-    Serial.println("blink");   
-  }
-};
+#define READ_NEWLINE_NOW 0
+#define READ_DEVICE_NOW 1
+#define READ_N_NOW 2
+
+#define NUM_INSTANCES 2
+
+typedef struct {
+  bool stage;
+} parse_state;
+
+parse_state parserState = { READ_NEWLINE_NOW };
+
+// state & timing
+
+unsigned long defaultDuration = 500;
+
+typedef struct {
+  bool on;
+  unsigned long changedAt;
+} led_state;
+
+led_state currentState = { false, millis() };
+led_state targetState = { false, millis() };
+
+/* e.g. for a attached motor */
+typedef struct {
+  float speed;
+  unsigned long changedAt;
+} motor_state;
+
+motor_state currentMotorState = { false, millis() };
+motor_state targetMotorState = { false, millis() };
 
 void setup() {
-  pinMode(13, OUTPUT);
-  digitalWrite(13, LOW); // Initialize LED 13 to be off
-
+  digitalWrite(13, LOW); // LED13 initially off
+  pinMode(2, OUTPUT);
+  pinMode(3, OUTPUT);
+  digitalWrite(2, LOW);  
   Serial.begin(9600);
-  softSerial.begin(9600);
-
-  bus.strategy.set_serial(&softSerial);
-  bus.strategy.set_enable_RS485_pin(2);
-  bus.set_receiver(receiver_function);
-  bus.set_synchronous_acknowledge(false);
-  bus.begin();
-};
+}
 
 void loop() {
-  bus.update();
-  bus.receive(1000);
-};
+  unsigned long now = millis();
+  if (targetState.on != currentState.on) {
+    digitalWrite(13, targetState.on ? HIGH : LOW);
+    currentState.on = targetState.on;
+    currentState.changedAt = millis();
+  }
+  // lights off after default duration
+  if (currentState.on && ((now - currentState.changedAt) >= defaultDuration)) {
+    targetState.on = false;
+  }
+}
+
+void serialEvent() {
+  while(Serial.available() > 0) {
+    char currentChar = (char)Serial.read();
+
+    if (currentChar == '\n') {
+      // full message received
+      parserState.stage = READ_DEVICE_NOW;
+      paramBuffer = "";
+    }
+    else if (parserState.stage == READ_DEVICE_NOW) {
+      if (currentChar == ' ') {
+        if (parserState.stage == READ_N_NOW) {
+            // read int
+          //paramBuffer.toInt() % NUM_INSTANCES;
+          targetState.on = true;
+          parserState.stage = READ_NEWLINE_NOW;
+        }
+        else {
+          if (paramBuffer == nodeName) {
+            // this message is for us
+            parserState.stage = READ_N_NOW;
+          }
+        }
+      }
+      else {
+        // buffering
+        if (parserState.stage != READ_NEWLINE_NOW) {
+          paramBuffer += currentChar;
+        }
+      }
+    }
+    else {
+      // skipping until newline
+    }
+  }
+}
