@@ -22,7 +22,7 @@
 // protocol handling
 String paramBuffer = "";
 String nodeName = "dcarm";
-
+char currentChar;
 Servo servo;
 
 typedef struct {
@@ -70,7 +70,7 @@ void nextStage() {
   paramBuffer = "";
 }
 
-void setState(int state) {
+void setStage(int state) {
   parserState.stage = 0;
   paramBuffer = "";
 }
@@ -103,7 +103,7 @@ void loop() {
   }
 
   if ((currentState.n > 0) && ((now - currentState.changedAt) >= currentDuration)) {
-    targetState.n = 0;
+    targetState.n = 90;
     targetState.light = false;
   }
 
@@ -119,33 +119,38 @@ void serialEvent() {
     char currentChar = (char)Serial.read();
     switch (parserState.stage) {
     case READ_DEVICE_NOW:
-      if ((currentChar == ' ') && (paramBuffer == nodeName)) {
-        nextStage();
+      if ((currentChar == ' ') || (currentChar == '\n')) {
+        if (paramBuffer == nodeName) {
+          nextStage();
+        }
+        else {
+          setStage(READ_NEWLINE_NOW);
+        }
       }
       else { paramBuffer += currentChar; }
       break;
     case READ_NEWLINE_NOW:
-      if (currentChar == '\n') {
+      if ((currentChar == ' ') || (currentChar == '\n')) {
         // full message received
         nextStage(); // wraps around
       }
       break;
     case READ_DUR_NOW:
-      if (currentChar == ' ') {
+      if ((currentChar == ' ') || (currentChar == '\n')) {
         currentDuration = floor(paramBuffer.toFloat() * 1000);
         nextStage();
       }
       else { paramBuffer += currentChar; }         
       break;
     case READ_SPEED_NOW:
-      if (currentChar == ' ') {
+      if ((currentChar == ' ') || (currentChar == '\n')) {
         targetState.speed = paramBuffer.toFloat();
         nextStage();
       }
       else { paramBuffer += currentChar; }
       break;
     case READ_N_NOW:
-      if (currentChar == ' ') {
+      if ((currentChar == ' ') || (currentChar == '\n')) {
         targetState.n = paramBuffer.toInt();
         targetState.light = true;
         nextStage();        
@@ -153,6 +158,9 @@ void serialEvent() {
       else { paramBuffer += currentChar; }
       break;
     }
-    
+    // we just read the last param and skip waiting for a newline
+    if ((parserState.stage == READ_NEWLINE_NOW) && (currentChar == '\n')) {
+      nextStage();
+    }
   }
 }
