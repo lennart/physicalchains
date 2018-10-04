@@ -1,27 +1,29 @@
 #include <Arduino.h>
+#include <Servo.h>
 
+// PINS
 #define MOTOR_EN_A 11
 #define MOTOR_IN1 9
 #define MOTOR_IN2 8
 #define MOTOR_IN3 7
 #define MOTOR_IN4 6
 #define MOTOR_EN_B 10
+#define SERVO_OUT 12
 
+// STATES
+#define NUM_STAGES 5
+// NOTE: number defines order!
 #define READ_NEWLINE_NOW 0
 #define READ_DEVICE_NOW 1
-#define READ_N_NOW 2
-
-#define LED_INSTANCE 0
-#define MOTOR_INSTANCE 1
-#define NUM_INSTANCES 2
-
-typedef int instance_type;
-
-instance_type instances[NUM_INSTANCES] = { LED_INSTANCE, MOTOR_INSTANCE };
+#define READ_DUR_NOW 2
+#define READ_N_NOW 3
+#define READ_SPEED_NOW 4
 
 // protocol handling
 String paramBuffer = "";
 String nodeName = "dcarm";
+
+Servo servo;
 
 typedef struct {
   int stage;
@@ -32,24 +34,17 @@ parse_state parserState = { READ_NEWLINE_NOW };
 // state & timing
 
 unsigned long defaultDuration = 500;
+unsigned long currentDuration = defaultDuration;
 
-typedef struct {
-  bool on;
-  unsigned long changedAt;
-} led_state;
-
-led_state currentState = { false, millis() };
-led_state targetState = { false, millis() };
-
-/* e.g. for a attached motor */
 typedef struct {
   float speed;
-  bool forward;
+  int n;
   unsigned long changedAt;
-} motor_state;
+} actuator_shape;
 
-motor_state currentMotorState = { 0.0, true, millis() };
-motor_state targetMotorState = { 0.0, true, millis() };
+actuator_shape currentState = { 0.0, 0, millis() };
+actuator_shape targetState = { 0.0, 1, millis() };
+
 
 
 
@@ -63,38 +58,51 @@ void setup() {
   pinMode(MOTOR_IN2, OUTPUT);
   pinMode(MOTOR_IN3, OUTPUT);
   pinMode(MOTOR_IN4, OUTPUT);
-  pinMode(MOTOR_EN_B, OUTPUT);  
+  pinMode(MOTOR_EN_B, OUTPUT);
+
+  servo.attach(SERVO_OUT);
   
   digitalWrite(2, LOW);  
   Serial.begin(9600);
 }
 
+void nextStage() {
+  parserState.stage = (parserState.stage + 1) % NUM_STAGES;
+  paramBuffer = "";
+}
+
+void setState(int state) {
+  parserState.stage = 0;
+  paramBuffer = "";
+}
+
 void loop() {
   unsigned long now = millis();
-  if (targetState.on != currentState.on) {
-    digitalWrite(13, targetState.on ? HIGH : LOW);
-    currentState.on = targetState.on;
-    currentState.changedAt = millis();
-  }
-  // lights off after default duration
-  if (currentState.on && ((now - currentState.changedAt) >= defaultDuration)) {
-    targetState.on = false;
-  }
 
-  if (targetMotorState.speed != currentMotorState.speed) {
-    currentMotorState.speed = targetMotorState.speed;
-    currentMotorState.changedAt = millis();
+  if (targetState.speed != currentState.speed) {
+    currentState.speed = targetState.speed;
+    currentState.changedAt = millis();
     digitalWrite(MOTOR_IN1, LOW);
     digitalWrite(MOTOR_IN2, HIGH);
-    analogWrite(MOTOR_EN_A, floor(currentMotorState.speed * 255));
+    analogWrite(MOTOR_EN_A, floor(currentState.speed * 255));
   }
 
-  if ((currentMotorState.speed > 0) && ((now - currentMotorState.changedAt) >= defaultDuration)) {
+  if ((currentState.speed > 0) && ((now - currentState.changedAt) >= currentDuration)) {
     digitalWrite(MOTOR_IN1, LOW);
     digitalWrite(MOTOR_IN2, LOW);
-    analogWrite(MOTOR_EN_A, 0);
-    targetMotorState.speed = 0.0;
+    analogWrite(MOTOR_EN_B, 0);
+    targetState.speed = 0.0;
   }
+
+  if (targetState.n != currentState.n) {
+    currentState.n = targetState.n;
+    currentState.changedAt = millis();
+    servo.write(abs(currentState.n) % 180);
+  }
+
+  if ((currentState.n > 0) && ((now - currentState.changedAt) >= currentDuration)) {
+    targetState.n = 0;
+  }    
 }
 
 void serialEvent() {
@@ -103,8 +111,7 @@ void serialEvent() {
     switch (parserState.stage) {
     case READ_DEVICE_NOW:
       if ((currentChar == ' ') && (paramBuffer == nodeName)) {
-        parserState.stage = READ_N_NOW;
-        paramBuffer = "";
+        nextStage();
       }
       else {
         // buffering
@@ -114,19 +121,33 @@ void serialEvent() {
     case READ_NEWLINE_NOW:
       if (currentChar == '\n') {
         // full message received
-        parserState.stage = READ_DEVICE_NOW;
-        paramBuffer = "";
+        nextStage();
+      }
+      break;
+    case READ_DUR_NOW:
+      if (currentChar == ' ') {
+        currentDuration = floor(paramBuffer.toFloat() * 1000);
+        nextStage();
+      }
+      else {
+        // buffering
+        paramBuffer += currentChar;
+      }         
+      break;
+    case READ_SPEED_NOW:
+      if (currentChar == ' ') {
+        targetState.speed = paramBuffer.toFloat();
+        nextStage();
+      }
+      else {
+        // buffering
+        paramBuffer += currentChar;
       }
       break;
     case READ_N_NOW:
       if (currentChar == ' ') {
-        if (paramBuffer.toInt() == 0) {
-          targetMotorState.speed = 1.0;
-        }
-        else {
-          targetState.on = true;              
-        }
-        parserState.stage = READ_NEWLINE_NOW;
+        targetState.n = paramBuffer.toInt();
+        nextStage();
       }
       else {
         // buffering
@@ -134,5 +155,6 @@ void serialEvent() {
       }
       break;
     }
+    
   }
 }
