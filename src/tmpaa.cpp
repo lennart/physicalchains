@@ -37,16 +37,14 @@ unsigned long defaultDuration = 500;
 unsigned long currentDuration = defaultDuration;
 
 typedef struct {
+  bool light; // led for debugging 
   float speed;
   int n;
   unsigned long changedAt;
 } actuator_shape;
 
-actuator_shape currentState = { 0.0, 0, millis() };
-actuator_shape targetState = { 0.0, 1, millis() };
-
-
-
+actuator_shape currentState = { false, 0.0, 0, millis() };
+actuator_shape targetState = { false, 0.0, 120, millis() };
 
 void setup() {
   digitalWrite(13, LOW); // LED13 initially off
@@ -59,6 +57,7 @@ void setup() {
   pinMode(MOTOR_IN3, OUTPUT);
   pinMode(MOTOR_IN4, OUTPUT);
   pinMode(MOTOR_EN_B, OUTPUT);
+  pinMode(SERVO_OUT, OUTPUT);
 
   servo.attach(SERVO_OUT);
   
@@ -97,12 +96,22 @@ void loop() {
   if (targetState.n != currentState.n) {
     currentState.n = targetState.n;
     currentState.changedAt = millis();
-    servo.write(abs(currentState.n) % 180);
+    currentState.light = targetState.light;
+    digitalWrite(13, currentState.light ? HIGH : LOW);
+
+    servo.write(currentState.n);
   }
 
   if ((currentState.n > 0) && ((now - currentState.changedAt) >= currentDuration)) {
     targetState.n = 0;
-  }    
+    targetState.light = false;
+  }
+
+  if (targetState.light != currentState.light) {
+  }
+
+  if (currentState.light && ((now - currentState.changedAt) >= currentDuration)) {
+  }
 }
 
 void serialEvent() {
@@ -113,15 +122,12 @@ void serialEvent() {
       if ((currentChar == ' ') && (paramBuffer == nodeName)) {
         nextStage();
       }
-      else {
-        // buffering
-        paramBuffer += currentChar;
-      }
+      else { paramBuffer += currentChar; }
       break;
     case READ_NEWLINE_NOW:
       if (currentChar == '\n') {
         // full message received
-        nextStage();
+        nextStage(); // wraps around
       }
       break;
     case READ_DUR_NOW:
@@ -129,30 +135,22 @@ void serialEvent() {
         currentDuration = floor(paramBuffer.toFloat() * 1000);
         nextStage();
       }
-      else {
-        // buffering
-        paramBuffer += currentChar;
-      }         
+      else { paramBuffer += currentChar; }         
       break;
     case READ_SPEED_NOW:
       if (currentChar == ' ') {
         targetState.speed = paramBuffer.toFloat();
         nextStage();
       }
-      else {
-        // buffering
-        paramBuffer += currentChar;
-      }
+      else { paramBuffer += currentChar; }
       break;
     case READ_N_NOW:
       if (currentChar == ' ') {
         targetState.n = paramBuffer.toInt();
-        nextStage();
+        targetState.light = true;
+        nextStage();        
       }
-      else {
-        // buffering
-        paramBuffer += currentChar;
-      }
+      else { paramBuffer += currentChar; }
       break;
     }
     
