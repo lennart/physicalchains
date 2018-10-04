@@ -1,0 +1,30 @@
+d1 $ n "120 70 1"
+  # speed "{0 0.5 1.0}%4"
+  # dur "0.2"
+  # device "dcarm"
+  # s "[motors, supersaw]"
+
+
+d1 $ foldEvery [2,3] (const silence) $
+  slow 2 $ speed (slowspread slow [4,3] tri)
+  # n (iter 4 $ scale 1 179 $ run 12)
+  # dur "0.25"
+  # device "dcarm"
+  # s "motors"
+--  # unit "c"
+
+hush
+
+
+
+
+
+
+
+
+
+-- for custom params
+let prm name = make' VF param
+      where param = F name Nothing
+    (device, device_p) = pS "device" Nothing 
+

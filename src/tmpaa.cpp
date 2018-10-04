@@ -81,15 +81,21 @@ void loop() {
   if (targetState.speed != currentState.speed) {
     currentState.speed = targetState.speed;
     currentState.changedAt = millis();
-    digitalWrite(MOTOR_IN1, LOW);
-    digitalWrite(MOTOR_IN2, HIGH);
-    analogWrite(MOTOR_EN_A, floor(currentState.speed * 255));
+    if (currentState.speed > 0) {
+      digitalWrite(MOTOR_IN1, LOW);
+      digitalWrite(MOTOR_IN2, HIGH);
+    }
+    else {
+      digitalWrite(MOTOR_IN1, HIGH);
+      digitalWrite(MOTOR_IN2, LOW);
+    }
+    analogWrite(MOTOR_EN_A, floor(min(1.0,abs(currentState.speed)) * 255));
   }
 
-  if ((currentState.speed > 0) && ((now - currentState.changedAt) >= currentDuration)) {
+  if ((currentState.speed != 0.0) && ((now - currentState.changedAt) >= currentDuration)) {
     digitalWrite(MOTOR_IN1, LOW);
     digitalWrite(MOTOR_IN2, LOW);
-    analogWrite(MOTOR_EN_B, 0);
+    analogWrite(MOTOR_EN_A, 0);
     targetState.speed = 0.0;
   }
 
