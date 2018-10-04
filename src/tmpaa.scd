@@ -9,15 +9,16 @@ p = DummySerial()
 
 (
 ~dirt.soundLibrary.addSynth(\motors,
-	(type: \midi, play: {
+	(play: {
 		var prms = currentEnvironment,
 		serialParams = [prms.device.value,
 			prms.dur.value,
 			prms.n.value,
 			prms.speed.value];
+		serialParams.join(" ").postln;
+
 		p.putAll(serialParams.join(" "));
 		p.put($\n);
-		serialParams.join(" ").postln;
 		true
 	})
 );
@@ -26,5 +27,7 @@ currentEnvironment.asAssociations.first.value
 
 
 (
-p.putAll("dcarm 1 90 0.9\n");
+p.putAll("dcarm 0.2 120 0.9\n");
 )
+
+

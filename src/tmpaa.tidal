@@ -5,13 +5,25 @@ d1 $ n "120 70 1"
   # s "[motors, supersaw]"
 
 
+d1 $ n "0" # s "supersaw"
+
 d1 $ foldEvery [2,3] (const silence) $
   slow 2 $ speed (slowspread slow [4,3] tri)
   # n (iter 4 $ scale 1 179 $ run 12)
   # dur "0.25"
+  # device "dcleg"
+  # s "motors"
+
+d1 $
+  speed (slow 4 sine)
+  # n (slow 4 sine)
+  |*| n 180
+  # dur "0.9"
   # device "dcarm"
   # s "motors"
---  # unit "c"
+
+d1 $ speed "0" # n "45" # dur "0.75" # device "dcleg" # s "motors"
+
 
 hush
 

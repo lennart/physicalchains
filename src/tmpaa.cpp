@@ -19,9 +19,11 @@
 #define READ_N_NOW 3
 #define READ_SPEED_NOW 4
 
+String nodeNames[] = { "dcarm", "dcleg" };
+
 // protocol handling
 String paramBuffer = "";
-String nodeName = "dcarm";
+String nodeName = nodeNames[NODE_NAME_IDX];
 char currentChar;
 Servo servo;
 
@@ -60,8 +62,10 @@ void setup() {
   pinMode(SERVO_OUT, OUTPUT);
 
   servo.attach(SERVO_OUT);
+
+  // set as rs485 receiver
+  digitalWrite(2, LOW);
   
-  digitalWrite(2, LOW);  
   Serial.begin(9600);
 }
 
