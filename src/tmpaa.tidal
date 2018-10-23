@@ -22,7 +22,9 @@ d1 $
   # device "dcarm"
   # s "motors"
 
-d1 $ speed "0" # n "45" # dur "0.75" # device "dcleg" # s "motors"
+d1 $ speed "1" # n "135"
+  # dur "0.8" # device "dcleg"
+  # s "motors"
 
 
 hush

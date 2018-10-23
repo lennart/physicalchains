@@ -1,4 +1,5 @@
 #include <Arduino.h>
+#include <SoftwareSerial.h>
 #include <Servo.h>
 
 // PINS
@@ -26,6 +27,8 @@ String paramBuffer = "";
 String nodeName = nodeNames[NODE_NAME_IDX];
 char currentChar;
 Servo servo;
+
+SoftwareSerial softSerial(4,5);
 
 typedef struct {
   int stage;
@@ -63,10 +66,11 @@ void setup() {
 
   servo.attach(SERVO_OUT);
 
-  // set as rs485 receiver
+  // enable rs485 transmitter/receiver
   digitalWrite(2, LOW);
   
   Serial.begin(9600);
+  softSerial.begin(9600);
 }
 
 void nextStage() {
@@ -83,6 +87,7 @@ void loop() {
   unsigned long now = millis();
 
   if (targetState.speed != currentState.speed) {
+    Serial.println("speed changed" + String(targetState.speed));
     currentState.speed = targetState.speed;
     currentState.changedAt = millis();
     if (currentState.speed > 0) {
@@ -125,8 +130,10 @@ void loop() {
 }
 
 void serialEvent() {
-  while(Serial.available() > 0) {
-    char currentChar = (char)Serial.read();
+  while(softSerial.available() > 0) {
+    char currentChar = (char)softSerial.read();
+    //    targetState.speed = 1.0;
+
     switch (parserState.stage) {
     case READ_DEVICE_NOW:
       if ((currentChar == ' ') || (currentChar == '\n')) {
